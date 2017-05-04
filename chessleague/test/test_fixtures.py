@@ -12,7 +12,7 @@ app.config.from_object('chessleague.config.TestConfig')
 
 
 # Make sure to inherit from the FixturesMixin class
-class TestFoo(unittest.TestCase, FixturesMixin):
+class TestLeague(unittest.TestCase, FixturesMixin):
 
     # Specify the fixtures file(s) you want to load.
     # Change the list below to ['authors.yaml'] if you created your fixtures
@@ -44,6 +44,7 @@ class TestFoo(unittest.TestCase, FixturesMixin):
         t0.players.append(p2)
         self.assertEqual('Jose', p2.firstname)
         self.assertEqual(2, len(t0.players.all()))
+        db.session.commit()
 
 
     def test_games(self):

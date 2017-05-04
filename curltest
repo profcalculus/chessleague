@@ -1,0 +1,4 @@
+CMD=echo 'curl -H "Content-Type:application/json" -i http://localhost:5000/chessleague/'$1
+echo $CMD
+$CMD
+

@@ -1,11 +1,8 @@
-#!/usr/bin/env python
+from flask import render_template
 from chessleague import app
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/chessleague.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 @app.route('/')
+@app.route('/index')
 def index():
-    return "Hello, World!"
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    return render_template("index.html",
+    title="ChessLeague")
