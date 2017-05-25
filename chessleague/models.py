@@ -1,14 +1,19 @@
+from sqlalchemy import and_, or_
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timedelta
+
+import uuid
+import hashlib
+
+
 from chessleague import app
 db = SQLAlchemy(app)
-from datetime import datetime
-from ipdb import set_trace as debug
-
 
 class Post(db.Model):
     __tablename__ = 'posts'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    user = db.relationship('User', back_populates='posts')
     date = db.Column(db.Date)
     post = db.Column(db.Text)
     active = db.Column(db.Boolean, default=True)
@@ -38,27 +43,31 @@ class Post(db.Model):
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    nick_name = db.Column(db.String(64), index=True)
+    user_name = db.Column(db.String(64), index=True)
     #  , unique=True)
     first_name = db.Column(db.String(30))
     last_name = db.Column(db.String(30))
     email = db.Column(db.String(120))
     #  , unique=True)
-    phone1 = db.column(db.String(15))
-    phone2 = db.column(db.String(15))
+    phone1 = db.Column(db.String(15))
+    phone2 = db.Column(db.String(15))
     admin = db.Column(db.Boolean, default=False)
+    password_hash = db.Column(db.String(100))
     active = db.Column(db.Boolean, default=True)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
-    posts = db.relationship('Post', backref='user', lazy='dynamic')
+    team = db.relationship('Team', back_populates='contacts')
+    posts = db.relationship('Post', back_populates='user', lazy='dynamic')
 
-    def __init__(self, nick_name, first_name, last_name,
-                 email=None, phone1=None, phone2=None, admin=False):
-        self.nick_name = nick_name
+    def __init__(self, user_name, first_name, last_name, password=None,
+                 email=None, phone1=None, phone2=None, team_id=None, admin=False):
+        self.user_name = user_name
         self.first_name = first_name
         self.last_name = last_name
+        self.password_hash = User.hash(password) if password else None
         self.email = email
         self.phone1 = phone1
         self.phone2 = phone2
+        self.team_id = team_id
         self.admin = admin
         self.active = True
 
@@ -68,7 +77,13 @@ class User(db.Model):
 
     @property
     def is_anonymous(self):
-        return False
+        return self.user_name is None
+
+    @property
+    def full_name(self):
+        return ("anonymous" if self.is_anonymous
+            else "{} ({} {})".format (
+                self.user_name, self.first_name, self.last_name))
 
     def get_id(self):
         try:
@@ -79,18 +94,18 @@ class User(db.Model):
     def __repr__(self):
         admin = '*' if self.admin else ''
         return '<User {}{} ({} {})>'.format(
-            admin, self.nick_name, self.first_name, self.last_name)
+            admin, self.user_name, self.first_name, self.last_name)
 
     @classmethod
-    def get(cls, id=None, nick_name=None,
+    def get(cls, id=None, user_name=None,
             first_name=None, last_name=None, email=None,
-            phone1=None, phone2=None, admin=None):
+            phone1=None, phone2=None, admin=None, team=None):
         query = db.session.query(User).filter(User.active)
         if id is not None:
             query = query.filter(User.id == id)
         else:
-            if nick_name is not None:
-                query = query.filter(User.nick_name == nick_name)
+            if user_name is not None:
+                query = query.filter(User.user_name == user_name)
             if first_name is not None:
                 query = query.filter(User.first_name == first_name)
             if last_name is not None:
@@ -103,8 +118,41 @@ class User(db.Model):
                 query = query.filter(User.phone2 == phone2)
             if admin is not None:
                 query = query.filter(User.admin == admin)
+            if team is not None:
+                query = query.filter(User.team == team)
             return query.all()
 
+    @classmethod
+    def hash(cls, password):
+        salt = uuid.uuid4().hex
+        return hashlib.sha256(salt.encode()
+            + password.encode()).hexdigest() + ':'+ salt
+
+    @classmethod
+    def check_password(cls, hashed_password, user_password):
+        password, salt = hashed_password.split(':')
+        return password == hashlib.sha256(salt.encode()
+            + user_password.encode()).hexdigest()
+
+    @classmethod
+    def authenticate(cls, user_name, password):
+        """ Authenticates an admin user based on the password.
+        If the user is an admin and the password matches the user record
+        (after hashing), return a session key (valid until midnight).
+        Else return None.
+        """
+        user = db.session.query(User).filter(user_name == User.user_name).one()
+        if user is None or not user.admin:
+            return None
+        if hash(password) == user.password_hash:
+            return SessionKey.add(user)
+
+    @classmethod
+    def login (cls, user_name, password):
+        today = datetime.now().date()
+        # TODO
+
+        #  db.session.execute
 
 class Player(db.Model):
     __tablename__ = 'players'
@@ -113,23 +161,21 @@ class Player(db.Model):
     last_name = db.Column(db.String(40))
     dob = db.Column(db.Date)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
+    team = db.relationship('Team', back_populates='players')
     active = db.Column(db.Boolean, default=True)
 
-    # games = db.relationship(
-    #     'Game', foreign_keys='[games.white_id, games.black_id]',
-    #     backref='players', lazy='dynamic')
-    def __init__(self, first_name, last_name, dob=None, team_id=None):
+    def __init__(self, first_name, last_name, dob=None, team=None):
         self.first_name = first_name
         self.last_name = last_name
         self.dob = dob
-        self.team_id = team_id
+        self.team = team
         self.active = True
 
     def __repr__(self):
         return'<Player {} {}>'.format(self.first_name, self.last_name)
 
     @classmethod
-    def get(cls, id=None, first_name=None, last_name=None, dob=None, team_id=None):
+    def get(cls, id=None, first_name=None, last_name=None, dob=None, team=None):
         query = db.session.query(Player).filter(Player.active)
         if id is not None:
             query = query.filter(Player.id == id)
@@ -140,8 +186,8 @@ class Player(db.Model):
                 query = query.filter(Player.last_name == last_name)
             if dob is not None:
                 query = query.filter(Player.dob == dob)
-            if team_id is not None:
-                query = query.filter(Player.team_id == team_id)
+            if team is not None:
+                query = query.filter(Player.team_id == team.id)
         return query.all()
 
 
@@ -149,15 +195,14 @@ class Team(db.Model):
     __tablename__ = 'teams'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(40))
-    contacts = db.relationship('User', backref='team', lazy='dynamic')
-    players = db.relationship('Player', backref='team', lazy='dynamic')
-    # matches = db.relationship(
-    #     'Match', backref="teams", lazy='dynamic')
+    contacts = db.relationship('User', back_populates='team', lazy='dynamic')
+    players = db.relationship('Player', back_populates='team', lazy='dynamic')
     active = db.Column(db.Boolean, default=True)
 
-    def __init__(self, name, contact=None):
+    def __init__(self, name, contacts=None, players=None):
         self.name = name
-        self.contact = contact
+        self.contacts = contacts
+        self.players = players
         self.active = True
 
     def __repr__(self):
@@ -173,70 +218,71 @@ class Team(db.Model):
                 query = query.filter(Team.name == name)
         return query.all()
 
+    @property
+    def all_matches(self):
+        return db.session.query(Match).filter_by(
+            or_(team_1_id=self.id, team_2_id=self.id))
 
 class Match(db.Model):
     __tablename__ = 'matches'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    team1_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
-    team2_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
-    team_1 = db.relationship('Team', foreign_keys=[team1_id])
-    team_2 = db.relationship('Team', foreign_keys=[team2_id])
-    # teams = db.relationship('Team', foreign_keys=[team1_id, team2_id])
+    team_1_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
+    team_2_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     date = db.Column(db.Date)
-    result1 = db.column(db.Integer)  # HALF-points
-    result2 = db.column(db.Integer)  # HALF-points
-    games = db.relationship('Game', backref='match', lazy='dynamic')
+    result_1 = db.Column(db.Integer)  # HALF-points
+    result2 = db.Column(db.Integer)  # HALF-points
     active = db.Column(db.Boolean, default=True)
 
-    def __init__(self, team1, team2,
-                 date, result1=None, result2=None, games=None):
-        self.team1 = team1
-        self.team2 = team2
+
+    def __init__(self, team_1_id, team_2_id,
+                 date, games=None):
+        self.team_1_id = team_1_id
+        self.team_2_id = team_2_id
         self.date = date
-        self.result1 = result1
-        self.result2 = result2
         self.games = games
         self.active = True
 
     def __repr__(self):
             return "<Match {} vs {}, {:%Y/%m/%d} {}>" .format(
-                self.team1.name, self.team2.name,
+                self.team_1.name, self.team_2.name,
                 self.date, self.result_str())
 
+    @property
+    def teams(self):
+        return [self.team_1, self.team_2]
+
     @classmethod
-    def get(cls, id=None, team1_id=None, team2_id=None, date=None):
+    def get(cls, id=None, team_1=None, team_2=None, date=None):
         query = db.session.query(Match).filter(Match.active)
         if id is not None:
             query = query.filter(Match.id == id)
         else:
-            if team1_id is not None:
-                query = query.filter(team1_id in (Match.team1_id, Match.team2_id))
-            if team2_id is not None:
-                query = query.filter(team2_id in (Match.team1_id, Match.team2_id))
+            # Order of team parameters does not matter
+            if team_1 is not None:
+                query = query.filter(team_1 in (Match.team_1, Match.team_2))
+            if team_2 is not None:
+                query = query.filter(team_2 in (Match.team_1, Match.team_2))
             if date is not None:
                 query = query.filter(Match.date == date)
         return query.all()
 
     def result(self):
         """ Computes the DOUBLED match result from the games as a pair of ints.
-        Returns (team1_score*2, team2_score*2) """
-        games = self.games.all()
-        if not games:
-            return None
+        Returns (team_1_score*2, team_2_score*2) """
         res1 = res2 = 0
-        for game in games:
+        for game in self.games:
             if game.result != '?':
                 if game.result == '=':
                     res1 += 1
                     res2 += 1
                 else:
-                    if game.white in self.team1:
+                    if game.white in self.team_1:
                         if game.result == 'W':
                             res1 += 2
                         else:
                             res2 += 2
                     else:  # game.result == 'B'
-                        if game.black in self.team1:
+                        if game.black in self.team_1:
                             res1 += 1
                         else:
                             res2 += 1
@@ -256,31 +302,29 @@ class Match(db.Model):
             result = "{}-{}".format(res2[0], res2[1])
         return result
 
-
 class Game(db.Model):
     __tablename__ = 'games'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     white_id = db.Column(db.Integer, db.ForeignKey('players.id'), nullable=False)
     black_id = db.Column(db.Integer, db.ForeignKey('players.id'), nullable=False)
-    white = db.relationship('Player', foreign_keys=[white_id])
-    black = db.relationship('Player', foreign_keys=[black_id])
-    # players = db.relationship('Player', foreign_keys=[white_id, black_id])
     match_id = db.Column(db.Integer, db.ForeignKey('matches.id'))
+    match = db.relationship('Match', back_populates='games')
     # White win, black win, draw, unknown)
     result = db.Column(db.Enum('?','W', 'B', '='))
     defaulted = db.Column(db.Boolean, default=False)
     active = db.Column(db.Boolean, default=True)
 
-    def __init__(self, white, black, match=None, result=None):
-        self.white = white
-        self.black = black
-        self.match = match
-        self.result = result
+    def __init__(self, white_id, black_id, match_id=None, result=None, defaulted=False):
+        self.white_id = white_id
+        self.black_id = black_id
+        self.match_id = match_id
+        self.result = result or '?'
+        self.defaulted = defaulted
         self.active = True
 
     def __repr__(self):
-        return '<Game {}-{} {}>'.format(
-            self.white.last_name, self.black.last_name, self.result)
+        return '<Game {} - {} ({})>'.format(
+            self.white.full_name, self.black.full_name, self.result)
 
     @classmethod
     def get(cls, id=None, white_id=None,
@@ -298,3 +342,53 @@ class Game(db.Model):
             if match_id is not None:
                 query = query.filter(match_id == Game.match_id)
         return query.all()
+
+    @property
+    def players(self):
+        return [self.white, self.black]
+
+class SessionKey(db.Model):
+    __tablename__ = 'session_keys'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+    session_key = db.Column(db.String(40), unique=True, nullable=False)
+    expiry = db.Column(db.DateTime, nullable=False)
+    def __init__(self, user):
+        self.user_id = user.id
+        today = datetime.now().date()
+        self.session_key = hash(user.username, today)
+        self.expiry = today + timedelta(days=1)
+
+    def check(self, user, session_key):
+        """ Verify that user holds a current session key.
+        Purge expired session keys, then return True iff
+        user has a stored session key that matches the key in the request.
+        """
+        #  Purge old session keys
+        db.session.delete(SessionKey).filter(SessionKey.expiry >= datetime.now().date())
+        db.session.commit()
+        if session_key is None:
+            return False
+        stored_session_key = db.session.query(SessionKey).filter(
+            SessionKey.user_id == user.id).one().session_key
+        return session_key == stored_session_key
+
+    @classmethod
+    def add(cls, user):
+        """ Make a new session key for an admin user.
+        Return the session_key value (valid for the current day only).
+        """
+        assert user.admin
+        new_key = SessionKey(user)
+        db.session.add(new_key)
+        db.session.commit()
+        return new_key.session_key
+
+
+# Add relationships after all model classes are defined
+
+Game.white = db.relationship('Player', foreign_keys="[Game.white_id]")
+Game.black = db.relationship('Player', foreign_keys="[Game.black_id]")
+Match.team_1 = db.relationship('Team', foreign_keys="[Match.team_1_id]")
+Match.team_2 = db.relationship('Team', foreign_keys="[Match.team_2_id]")
+Match.games = db.relationship('Game')

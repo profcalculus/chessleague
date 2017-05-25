@@ -1,5 +1,5 @@
 --
--- File generated with SQLiteStudio v3.1.1 on Thu May 4 14:26:25 2017
+-- File generated with SQLiteStudio v3.1.1 on Thu May 4 23:52:40 2017
 --
 -- Text encoding used: UTF-8
 --
@@ -34,7 +34,7 @@ CREATE TABLE games (
     REFERENCES matches (id),
     CHECK (result IN ('?', 'W', 'B', '=') ),
     CHECK (defaulted IN (0, 1) ),
-    CHECK (active IN (0, 1) ) 
+    CHECK (active IN (0, 1) )
 );
 
 
@@ -58,7 +58,7 @@ CREATE TABLE matches (
         team2_id
     )
     REFERENCES teams (id),
-    CHECK (active IN (0, 1) ) 
+    CHECK (active IN (0, 1) )
 );
 
 
@@ -80,7 +80,7 @@ CREATE TABLE players (
         team_id
     )
     REFERENCES teams (id),
-    CHECK (active IN (0, 1) ) 
+    CHECK (active IN (0, 1) )
 );
 
 INSERT INTO players (
@@ -112,7 +112,7 @@ INSERT INTO players (
                         2,
                         'Jose',
                         'Capablanca',
-                        '1892-10-24',
+                        '1888-11-19',
                         4,
                         1
                     );
@@ -130,7 +130,7 @@ INSERT INTO players (
                         'Boris',
                         'Spassky',
                         '1936-04-14',
-                        1,
+                        3,
                         1
                     );
 
@@ -146,8 +146,8 @@ INSERT INTO players (
                         4,
                         'Tigran',
                         'Petrosian',
-                        '1935-03-021',
-                        2,
+                        '1929-06-17',
+                        4,
                         1
                     );
 
@@ -164,9 +164,89 @@ INSERT INTO players (
                         'Emanuel',
                         'Lasker',
                         '1868-12-24',
-                        1,
-                        NULL
+                        3,
+                        1
                     );
+INSERT INTO players (
+id,
+first_name,
+last_name,
+dob,
+team_id,
+active
+)
+VALUES (
+6,
+'Frank',
+'Marshall',
+'1868-12-24',
+2,
+1
+);
+INSERT INTO players (
+id,
+first_name,
+last_name,
+dob,
+team_id,
+active
+)
+VALUES (
+7,
+'Aron',
+'Nimzowitsch',
+'1868-12-24',
+2,
+1
+);
+INSERT INTO players (
+id,
+first_name,
+last_name,
+dob,
+team_id,
+active
+)
+VALUES (
+8,
+'Geza',
+'Marocz',
+'1868-12-24',
+3,
+1
+);
+INSERT INTO players (
+id,
+first_name,
+last_name,
+dob,
+team_id,
+active
+)
+VALUES (
+9,
+'Efim',
+'Bogoljubow',
+'1868-12-24',
+4,
+1
+);
+INSERT INTO players (
+id,
+first_name,
+last_name,
+dob,
+team_id,
+active
+)
+VALUES (
+10,
+'Salo',
+'Flohr',
+'1868-12-24',
+3,
+1
+);
 
 
 -- Table: posts
@@ -185,7 +265,7 @@ CREATE TABLE posts (
         user_id
     )
     REFERENCES users (id),
-    CHECK (active IN (0, 1) ) 
+    CHECK (active IN (0, 1) )
 );
 
 
@@ -199,7 +279,7 @@ CREATE TABLE teams (
     PRIMARY KEY (
         id
     ),
-    CHECK (active IN (0, 1) ) 
+    CHECK (active IN (0, 1) )
 );
 
 INSERT INTO teams (
@@ -289,7 +369,7 @@ CREATE TABLE users (
     FOREIGN KEY (
         team_id
     )
-    REFERENCES teams (id) 
+    REFERENCES teams (id)
 );
 
 

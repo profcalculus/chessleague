@@ -3,7 +3,7 @@ import os.path
 from migrate.versioning import api
 
 from chessleague.config import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_MIGRATE_REPO
-from chessleague import db
+from chessleague.models import db
 
 db.create_all()
 if not os.path.exists(SQLALCHEMY_MIGRATE_REPO):
