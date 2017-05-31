@@ -1,4 +1,11 @@
+from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from flask import url_for, current_app
+from .helpers import args_from_url
+from .errors import ValidationError
+
 from sqlalchemy import and_, or_
+from flask import url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 
@@ -72,12 +79,29 @@ class User(db.Model):
         self.active = True
 
     @property
-    def is_authenticated(self):
-        return True
+    def password(self):
+        raise AttributeError('password is not a readable attribute')
 
-    @property
-    def is_anonymous(self):
-        return self.user_name is None
+    @password.setter
+    def password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def verify_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def generate_auth_token(self, expires_in=3600):
+        s = Serializer(current_app.config['SECRET_KEY'], expires_in=expires_in)
+        return s.dumps({'id': self.id}).decode('utf-8')
+
+    @staticmethod
+    def verify_auth_token(token):
+        s = Serializer(current_app.config['SECRET_KEY'])
+        try:
+            data = s.loads(token)
+        except:
+            return None
+        return User.query.get(data['id'])
+
 
     @property
     def full_name(self):
@@ -85,21 +109,34 @@ class User(db.Model):
             else "{} ({} {})".format (
                 self.user_name, self.first_name, self.last_name))
 
-    def get_id(self):
-        try:
-            return unicode(self.id)  # python 2
-        except NameError:
-            return str(self.id)  # python 3
+    def get_url(self):
+        return url_for('api.get_user', id=self.id, _external=True)
 
-    def __repr__(self):
-        admin = '*' if self.admin else ''
-        return '<User {}{} ({} {})>'.format(
-            admin, self.user_name, self.first_name, self.last_name)
+    def to_json(self):
+        return {
+        'user_name': self.user_name,
+        'first_name': self.first_name,
+        'last_name': self.last_name,
+        'email': self.email,
+        'phone1': self.phone1,
+        'phone2': self.phone2,
+        'team': self.team.get_url(),
+        'admin':self.admin,
+        }
+
+    def from_json(self, json):
+        for key, value in json.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                app.logger.error('{}: could not set attribute {} to {}'
+                    .format(self.__class__.__name__, key, value))
+        return self
 
     @classmethod
     def get(cls, id=None, user_name=None,
             first_name=None, last_name=None, email=None,
-            phone1=None, phone2=None, admin=None, team=None):
+            phone1=None, phone2=None, admin=None, team_id=None):
         query = db.session.query(User).filter(User.active)
         if id is not None:
             query = query.filter(User.id == id)
@@ -118,8 +155,8 @@ class User(db.Model):
                 query = query.filter(User.phone2 == phone2)
             if admin is not None:
                 query = query.filter(User.admin == admin)
-            if team is not None:
-                query = query.filter(User.team == team)
+            if team_id is not None:
+                query = query.filter(User.team_id == team_id)
             return query.all()
 
     @classmethod
@@ -158,24 +195,49 @@ class Player(db.Model):
     __tablename__ = 'players'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     first_name = db.Column(db.String(40))
-    last_name = db.Column(db.String(40))
+    last_name = db.Column(db.String(40), index=True)
     dob = db.Column(db.Date)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='players')
     active = db.Column(db.Boolean, default=True)
 
-    def __init__(self, first_name, last_name, dob=None, team=None):
+    @property
+    def player_id(self):
+        return self.id
+
+    def __init__(self, first_name, last_name, dob=None, team_id=None):
         self.first_name = first_name
         self.last_name = last_name
         self.dob = dob
-        self.team = team
+        self.team_id = team_id
         self.active = True
 
     def __repr__(self):
         return'<Player {} {}>'.format(self.first_name, self.last_name)
 
+    def get_url(self):
+        return url_for('PlayerAPI.get', id=self.id, _external=True)
+
+    def to_json(self):
+        return {
+        'url': self.get_url(),
+        'first_name': self.first_name,
+        'last_name': self.last_name,
+        'dob': self.dob,
+        'team': url_for('TeamAPI.get', id=self.team_id, _external=True),
+        }
+
+    def from_json(self, json):
+        for key, value in json.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                app.logger.error('{}: could not set attribute {} to {}'
+                    .format(self.__class__.__name__, key, value))
+        return self
+
     @classmethod
-    def get(cls, id=None, first_name=None, last_name=None, dob=None, team=None):
+    def get(cls, id=None, first_name=None, last_name=None, dob=None, team_id=None):
         query = db.session.query(Player).filter(Player.active)
         if id is not None:
             query = query.filter(Player.id == id)
@@ -186,18 +248,22 @@ class Player(db.Model):
                 query = query.filter(Player.last_name == last_name)
             if dob is not None:
                 query = query.filter(Player.dob == dob)
-            if team is not None:
-                query = query.filter(Player.team_id == team.id)
-        return query.all()
+            if team_id is not None:
+                query = query.filter(Player.team_id == team_id)
+        return query.all_or_404()
 
 
 class Team(db.Model):
     __tablename__ = 'teams'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(40))
+    name = db.Column(db.String(40), index=True)
     contacts = db.relationship('User', back_populates='team', lazy='dynamic')
     players = db.relationship('Player', back_populates='team', lazy='dynamic')
     active = db.Column(db.Boolean, default=True)
+
+    @property
+    def team_id(self):
+        return self.id
 
     def __init__(self, name, contacts=None, players=None):
         self.name = name
@@ -207,6 +273,27 @@ class Team(db.Model):
 
     def __repr__(self):
         return '<Team {}>'.format(self.name)
+
+    def get_url(self):
+        return url_for('TeamAPI.get', id=self.id, _external=True)
+
+    def to_json(self):
+        return {
+        'name': self.name,
+        'contacts':
+            [url_for('User.get', id=c.id, _external=True) for c in self.contacts],
+        'players':
+            [url_for('PlayerAPI.get', id=p.id, _external=True) for p in self.players],
+        }
+
+    def from_json(self, json):
+        for key, value in json.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                app.logger.error('{}: could not set attribute {} to {}'
+                    .format(self.__class__.__name__, key, value))
+        return self
 
     @classmethod
     def get(cls, id=None, name=None):
@@ -242,6 +329,27 @@ class Match(db.Model):
         self.games = games
         self.active = True
 
+    def get_url(self):
+        return url_for('GameAPI.get',id=self.id, _external=True)
+
+    def to_json(self):
+        return {
+            'team_1': self.team_1.get_url(),
+            'team_2': self.team_2.get_url(),
+            'date': self.date,
+            'games': [g.get_url() for g in self.games],
+            'result': self.result_str(),
+        }
+
+    def from_json(self, json):
+        for key, value in json.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                app.logger.error('{}: could not set attribute {} to {}'
+                    .format(self.__class__.__name__, key, value))
+        return self
+
     def __repr__(self):
             return "<Match {} vs {}, {:%Y/%m/%d} {}>" .format(
                 self.team_1.name, self.team_2.name,
@@ -252,16 +360,15 @@ class Match(db.Model):
         return [self.team_1, self.team_2]
 
     @classmethod
-    def get(cls, id=None, team_1=None, team_2=None, date=None):
+    def get(cls, id=None, team_1_id=None, team_2_id=None, date=None):
         query = db.session.query(Match).filter(Match.active)
         if id is not None:
             query = query.filter(Match.id == id)
         else:
             # Order of team parameters does not matter
-            if team_1 is not None:
-                query = query.filter(team_1 in (Match.team_1, Match.team_2))
-            if team_2 is not None:
-                query = query.filter(team_2 in (Match.team_1, Match.team_2))
+            if team_1_id or team_2_id:
+                ids = (team_1_id, team_2_id)
+                query = query.filter(or_(Match.team_1_id in ids, Match.team_2_id in ids))
             if date is not None:
                 query = query.filter(Match.date == date)
         return query.all()
@@ -322,6 +429,39 @@ class Game(db.Model):
         self.defaulted = defaulted
         self.active = True
 
+    def get_url(self):
+        return url_for('GameAPI.get', id=self.id, _external=True)
+
+    def to_json(self):
+        return {
+        'white': self.white.get_url(),
+        'black': self.black.get_url(),
+        'match': self.match.get_url(),
+        'result': self.result_str(),
+        }
+
+    def from_json(self, json):
+        for key, value in json.items():
+            try:
+                setattr(self, key, value)
+            except AttributeError:
+                app.logger.error('{}: could not set attribute {} to {}'
+                    .format(self.__class__.__name__, key, value))
+        return self
+
+    def result_str(self):
+        result_map = {
+        'W': '1-0',
+        'B': '0-1',
+        '=': '=',
+        '?': '?'
+        }
+        res = result_map[self.result]
+        if self.defaulted:
+            res += 'D'
+        return res
+
+
     def __repr__(self):
         return '<Game {} - {} ({})>'.format(
             self.white.full_name, self.black.full_name, self.result)
@@ -350,9 +490,10 @@ class Game(db.Model):
 class SessionKey(db.Model):
     __tablename__ = 'session_keys'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey(
+        'users.id'), unique=True, nullable=False, index=True)
     session_key = db.Column(db.String(40), unique=True, nullable=False)
-    expiry = db.Column(db.DateTime, nullable=False)
+    expiry = db.Column(db.DateTime, nullable=False, index=True)
     def __init__(self, user):
         self.user_id = user.id
         today = datetime.now().date()
@@ -365,7 +506,7 @@ class SessionKey(db.Model):
         user has a stored session key that matches the key in the request.
         """
         #  Purge old session keys
-        db.session.delete(SessionKey).filter(SessionKey.expiry >= datetime.now().date())
+        db.session.delete(SessionKey).filter(SessionKey.expiry <= datetime.now().date())
         db.session.commit()
         if session_key is None:
             return False

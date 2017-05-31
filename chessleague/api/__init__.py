@@ -1,16 +1,40 @@
-from flask import jsonify
-from flask_restful import Api
-from chessleague import app
-
-from base_request_parser import BaseRequestParser
+from flask import jsonify, Blueprint, g
+from ..errors import ValidationError, bad_request, not_found
+from ..decorators import rate_limit
 
 from ipdb import set_trace as DBG
 
-BASE_URL = app.config['BASE_URL']
-api = Api(app)
+api = Blueprint('api', __name__)
+
+from ..auth import auth
+
+@api.errorhandler(ValidationError)
+def validation_error(e):
+    return bad_request(e.args[0])
 
 
-def bad_request(message):
-    response = jsonify({'message': message})
-    response.status_code = 400
+@api.errorhandler(400)
+def bad_request_error(e):
+    return bad_request('invalid request')
+
+
+@api.errorhandler(404)
+def not_found_error(e):
+    return not_found('item not found')
+
+
+@api.before_request
+@rate_limit(limit=5, per=15)
+@auth.login_required
+def before_request():
+    pass
+
+
+@api.after_request
+def after_request(response):
+    if hasattr(g, 'headers'):
+        response.headers.extend(g.headers)
     return response
+
+# do this last to avoid circular dependencies
+from . import player_api, user_api, game_api, team_api, match_api

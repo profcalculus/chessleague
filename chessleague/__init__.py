@@ -3,27 +3,65 @@ import os
 
 from flask import Flask, g
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
+
 import sqlite3
 
-import config
+from ipdb import set_trace as DBG
 
-app = Flask(__name__)
+
+app = Flask('chessleague')
 app.config.from_object('chessleague.config')
+DBG()
+login_manager = LoginManager()
+login_manager.login_view = 'auth.login'
 
 from chessleague import models, api
-from chessleague.api import player_api, team_api, user_api
+from chessleague.api import player_api, team_api, user_api, game_api, match_api
 
 # Debugging
-from ipdb import set_trace as BP
+from ipdb import set_trace as DBG
 
-# Load default config and override config from an environment variable
-app.config.update(dict(
-    DATABASE=os.path.join(app.root_path, 'chessleague.db'),
-    DEBUG=True,
-    SECRET_KEY='development key',
-    USERNAME='charles',
-    PASSWORD='charles'
-))
+def create_app(config_name):
+    app = Flask(__name__)
+    app.config.from_object(app.config.environment[config_name])
+
+    # if not app.config['DEBUG'] and not app.config['TESTING']:
+        # configure logging for production
+
+        # # email errors to the administrators
+        # if app.config.get('MAIL_ERROR_RECIPIENT') is not None:
+        #     import logging
+        #     from logging.handlers import SMTPHandler
+        #     credentials = None
+        #     secure = None
+        #     if app.config.get('MAIL_USERNAME') is not None:
+        #         credentials = (app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
+        #         if app.config['MAIL_USE_TLS'] is not None:
+        #             secure = ()
+        #     mail_handler = SMTPHandler(
+        #         mailhost=(app.config['MAIL_SERVER'], app.config['MAIL_PORT']),
+        #         fromaddr=app.config['MAIL_DEFAULT_SENDER'],
+        #         toaddrs=[app.config['MAIL_ERROR_RECIPIENT']],
+        #         subject='[Talks] Application Error',
+        #         credentials=credentials,
+        #         secure=secure)
+        #     mail_handler.setLevel(logging.ERROR)
+        #     app.logger.addHandler(mail_handler)
+
+        # send standard logs to syslog
+    import logging
+    from logging.handlers import SysLogHandler
+    syslog_handler = SysLogHandler()
+    syslog_handler.setLevel(logging.WARNING)
+    app.logger.addHandler(syslog_handler)
+
+    # bootstrap.init_app(app)
+    db = get_db()
+    db.init_app(app)
+    login_manager.init_app(app)
+    return app
+
 
 app.config.from_envvar('CHESSLEAGUE_SETTINGS', silent=True)
 
