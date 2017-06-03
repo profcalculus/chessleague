@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import uuid
 import hashlib
-
+from ipdb import set_trace as DBG
 
 from chessleague import app
 db = SQLAlchemy(app)
@@ -24,14 +24,6 @@ class Post(db.Model):
     date = db.Column(db.Date)
     post = db.Column(db.Text)
     active = db.Column(db.Boolean, default=True)
-
-    def __init__(self, user, post, date=None):
-        self.user = user
-        self.post = post
-        if date is None:
-            date = datetime.utcnow()
-        self.date = date
-        self.active = True
 
     def __repr__(self):
         return '<Post by {} on {}>'.format(self.user, self.date)
@@ -64,19 +56,6 @@ class User(db.Model):
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='contacts')
     posts = db.relationship('Post', back_populates='user', lazy='dynamic')
-
-    def __init__(self, user_name, first_name, last_name, password=None,
-                 email=None, phone1=None, phone2=None, team_id=None, admin=False):
-        self.user_name = user_name
-        self.first_name = first_name
-        self.last_name = last_name
-        self.password_hash = User.hash(password) if password else None
-        self.email = email
-        self.phone1 = phone1
-        self.phone2 = phone2
-        self.team_id = team_id
-        self.admin = admin
-        self.active = True
 
     @property
     def password(self):
@@ -205,26 +184,18 @@ class Player(db.Model):
     def player_id(self):
         return self.id
 
-    def __init__(self, first_name, last_name, dob=None, team_id=None):
-        self.first_name = first_name
-        self.last_name = last_name
-        self.dob = dob
-        self.team_id = team_id
-        self.active = True
-
     def __repr__(self):
         return'<Player {} {}>'.format(self.first_name, self.last_name)
 
     def get_url(self):
-        return url_for('PlayerAPI.get', id=self.id, _external=True)
+        return url_for('api.get_player', id=self.id, _external=True)
 
     def to_json(self):
         return {
-        'url': self.get_url(),
         'first_name': self.first_name,
         'last_name': self.last_name,
         'dob': self.dob,
-        'team': url_for('TeamAPI.get', id=self.team_id, _external=True),
+        'team': url_for('api.get_team', id=self.team_id, _external=True),
         }
 
     def from_json(self, json):
@@ -265,25 +236,19 @@ class Team(db.Model):
     def team_id(self):
         return self.id
 
-    def __init__(self, name, contacts=None, players=None):
-        self.name = name
-        self.contacts = contacts
-        self.players = players
-        self.active = True
-
     def __repr__(self):
         return '<Team {}>'.format(self.name)
 
     def get_url(self):
-        return url_for('TeamAPI.get', id=self.id, _external=True)
+        return url_for('api.get_team', id=self.id, _external=True)
 
     def to_json(self):
         return {
         'name': self.name,
         'contacts':
-            [url_for('User.get', id=c.id, _external=True) for c in self.contacts],
+            [url_for('api.get_user', id=c.id, _external=True) for c in self.contacts],
         'players':
-            [url_for('PlayerAPI.get', id=p.id, _external=True) for p in self.players],
+            [url_for('api.get_player', id=p.id, _external=True) for p in self.players],
         }
 
     def from_json(self, json):
@@ -321,16 +286,8 @@ class Match(db.Model):
     active = db.Column(db.Boolean, default=True)
 
 
-    def __init__(self, team_1_id, team_2_id,
-                 date, games=None):
-        self.team_1_id = team_1_id
-        self.team_2_id = team_2_id
-        self.date = date
-        self.games = games
-        self.active = True
-
     def get_url(self):
-        return url_for('GameAPI.get',id=self.id, _external=True)
+        return url_for('api.get_match',id=self.id, _external=True)
 
     def to_json(self):
         return {
@@ -395,7 +352,7 @@ class Match(db.Model):
                             res2 += 1
         return (res1, res2)
 
-    def _result_str(self):
+    def result_str(self):
         # Sane representation of match result, eg "1.5-2.5"
         res2 = self.result() #  An ordered pair of ints - values are doubled
         if res2 is None:
@@ -421,16 +378,8 @@ class Game(db.Model):
     defaulted = db.Column(db.Boolean, default=False)
     active = db.Column(db.Boolean, default=True)
 
-    def __init__(self, white_id, black_id, match_id=None, result=None, defaulted=False):
-        self.white_id = white_id
-        self.black_id = black_id
-        self.match_id = match_id
-        self.result = result or '?'
-        self.defaulted = defaulted
-        self.active = True
-
     def get_url(self):
-        return url_for('GameAPI.get', id=self.id, _external=True)
+        return url_for('api.get_game', id=self.id, _external=True)
 
     def to_json(self):
         return {
@@ -494,6 +443,7 @@ class SessionKey(db.Model):
         'users.id'), unique=True, nullable=False, index=True)
     session_key = db.Column(db.String(40), unique=True, nullable=False)
     expiry = db.Column(db.DateTime, nullable=False, index=True)
+
     def __init__(self, user):
         self.user_id = user.id
         today = datetime.now().date()

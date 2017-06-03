@@ -6,7 +6,7 @@ from ipdb import set_trace as DBG
 
 api = Blueprint('api', __name__)
 
-from ..auth import auth
+# from ..auth import auth
 
 @api.errorhandler(ValidationError)
 def validation_error(e):
@@ -25,7 +25,7 @@ def not_found_error(e):
 
 @api.before_request
 @rate_limit(limit=5, per=15)
-@auth.login_required
+# @auth.login_required
 def before_request():
     pass
 

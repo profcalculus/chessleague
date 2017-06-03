@@ -1,3 +1,3 @@
 #!/usr/bin/env python
-from chessleague import app
-app.run(debug=True)
+import chessleague
+chessleague.app.run(debug=True)
