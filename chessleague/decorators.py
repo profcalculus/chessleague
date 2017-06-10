@@ -1,8 +1,43 @@
 import functools
 import hashlib
 from flask import jsonify, request, url_for, current_app, make_response, g
+from sqlalchemy.orm.query import Query
 from .rate_limit import RateLimit
 from .errors import too_many_requests, precondition_failed, not_modified
+from ipdb import set_trace as DBG
+import inspect
+
+
+def dump(obj):
+    s = obj.__class__.__name__
+    s += ': '
+    for attr in dir(obj):
+        x = getattr(obj, attr)
+        if attr.startswith('_') or callable(x):
+            continue
+        s += '%s=%s, ' % (attr, x)
+    return s
+
+
+def log(f):
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        s = '%s ' % f.__name__
+        if args:
+            s += 'args:('
+            for a in args:
+                s += dump(a)
+            s += '), '
+        if kwargs:
+            s += 'kwargs:('
+            for k, v in kwargs.items():
+                s += '%s=%s, ' % (k, dump(v))
+            s += '), '
+        current_app.logger.debug(s)
+        rv = f(*args, **kwargs)
+        current_app.logger.debug(dump(rv))
+        return rv
+    return wrapped
 
 
 def json(f):
@@ -11,12 +46,17 @@ def json(f):
         rv = f(*args, **kwargs)
         status_or_headers = None
         headers = None
+        if isinstance(rv, Query):
+            rv = rv.all()
         if isinstance(rv, tuple):
             rv, status_or_headers, headers = rv + (None,) * (3 - len(rv))
         if isinstance(status_or_headers, (dict, list)):
             headers, status_or_headers = status_or_headers, None
         if not isinstance(rv, dict):
-            rv = rv.to_json()
+            if isinstance(rv, list):
+                rv = [item.to_json() for item in rv]
+            else:
+                rv = rv.to_json()
         rv = jsonify(rv)
         if status_or_headers is not None:
             rv.status_code = status_or_headers
@@ -36,7 +76,8 @@ def rate_limit(limit, per, scope_func=lambda: request.remote_addr):
                 if not limiter.over_limit:
                     rv = f(*args, **kwargs)
                 else:
-                    rv = too_many_requests('You have exceeded your request rate')
+                    rv = too_many_requests(
+                        'You have exceeded your request rate')
                 #rv = make_response(rv)
                 g.headers = {
                     'X-RateLimit-Remaining': str(limiter.remaining),
@@ -80,7 +121,7 @@ def paginate(max_per_page=10):
                                     per_page=per_page, _external=True,
                                     **kwargs)
             return jsonify({
-                'urls': [item.get_url() for item in p.items],
+                'items': [item.to_json() for item in p.items],
                 'meta': pages
             })
         return wrapped
@@ -93,7 +134,7 @@ def cache_control(*directives):
         def wrapped(*args, **kwargs):
             rv = f(*args, **kwargs)
             rv = make_response(rv)
-            rv.headers['Cache-Control'] =', '.join(directives)
+            rv.headers['Cache-Control'] = ', '.join(directives)
             return rv
         return wrapped
     return decorator
@@ -107,19 +148,31 @@ def etag(f):
     @functools.wraps(f)
     def wrapped(*args, **kwargs):
         # only for HEAD and GET requests
-        assert request.method in ['HEAD', 'GET'],\
-            '@etag is only supported for GET requests'
         rv = f(*args, **kwargs)
         rv = make_response(rv)
+        if request.method not in ['HEAD', 'GET']:
+            current_app.log.warn('@etag decorator ignored for %s request'
+                                 % (request.method))
+            return rv
+        if rv.status_code != 200:
+            current_app.log.warn('@etag decorator ignored because status_code is %s'
+                                 % rv.status_code)
+            return rv
         etag = '"' + hashlib.md5(rv.get_data()).hexdigest() + '"'
         rv.headers['ETag'] = etag
         if_match = request.headers.get('If-Match')
         if_none_match = request.headers.get('If-None-Match')
         if if_match:
+            # only return the response if the etag for this request matches
+            # any of the etags given in the If-Match header. If there is no
+            # match, then return a 412 Precondition Failed status code
             etag_list = [tag.strip() for tag in if_match.split(',')]
             if etag not in etag_list and '*' not in etag_list:
                 rv = precondition_failed()
         elif if_none_match:
+            # only return the response if the etag for this request does not
+            # match any of the etags given in the If-None-Match header. If
+            # one matches, then return a 304 Not Modified status code
             etag_list = [tag.strip() for tag in if_none_match.split(',')]
             if etag in etag_list or '*' in etag_list:
                 rv = not_modified()

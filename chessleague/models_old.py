@@ -8,7 +8,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from flask import url_for, current_app
 from sqlalchemy import or_
-from flask_sqlalchemy import BaseQuery
 from ipdb import set_trace as DBG
 
 from .errors import ValidationError
@@ -24,51 +23,22 @@ def parse_date(yyyy_mm_dd):
         current_app.logger.error("Cannot parse date '%s'" % yyyy_mm_dd)
         raise ValidationError(exc)
 
-class QueryWithSoftDelete(BaseQuery):
-    def __new__(cls, *args, **kwargs):
-        obj = super(QueryWithSoftDelete, cls).__new__(cls)
-        with_deleted = kwargs.pop('_with_deleted', False)
-        if len(args) > 0:
-            super(QueryWithSoftDelete, obj).__init__(*args, **kwargs)
-            return obj.filter_by(deleted=False) if not with_deleted else obj
-        return obj
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def with_deleted(self):
-        return self.__class__(db.class_mapper(self._mapper_zero().class_),
-                              session=db.session(), _with_deleted=True)
-
-
-    def _get(self, *args, **kwargs):
-        # this calls the original query.get function from the base class
-        return super(QueryWithSoftDelete, self).get(*args, **kwargs)
-
-    def get(self, *args, **kwargs):
-        # the query.get method does not like it if there is a filter clause
-        # pre-loaded, so we need to implement it using a workaround
-        obj = self.with_deleted()._get(*args, **kwargs)
-        return obj if obj is not None and not obj.deleted else None
-
-
 
 class Post(db.Model):
     __tablename__ = 'posts'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     user = db.relationship('User', back_populates='posts')
     date = db.Column(db.Date)
     post = db.Column(db.Text)
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
 
     def __repr__(self):
         return '<Post by {} on {}>'.format(self.user, self.date)
 
     @classmethod
     def get(cls, id=None, user_id=None, pdate=None):
-        query = db.session.query(Post)
+        query = db.session.query(Post).filter(Post.active)
         if id is not None:
             query = query.filter(Post.id == id)
         else:
@@ -76,12 +46,10 @@ class Post(db.Model):
                 query = query.filter(Post.user_id == user_id)
             if date is not None:
                 query = query.filter(Post.date == pdate)
-        return query.all_or_404()
 
 
 class User(db.Model):
     __tablename__ = 'users'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_name = db.Column(db.String(64), index=True)
     #  , unique=True)
@@ -93,7 +61,7 @@ class User(db.Model):
     phone2 = db.Column(db.String(15))
     admin = db.Column(db.Boolean, default=False)
     password_hash = db.Column(db.String(100))
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='contacts')
     posts = db.relationship('Post', back_populates='user')
@@ -163,7 +131,7 @@ class User(db.Model):
     def get(cls, id=None, user_name=None,
             first_name=None, last_name=None, email=None,
             phone1=None, phone2=None, admin=None, team_id=None):
-        query = db.session.query(User)
+        query = db.session.query(User).filter(User.active)
         if id is not None:
             query = query.filter(User.id == id)
         else:
@@ -183,7 +151,7 @@ class User(db.Model):
                 query = query.filter(User.admin == admin)
             if team_id is not None:
                 query = query.filter(User.team_id == team_id)
-            return query.all_or_404()
+            return query.all()
 
     @classmethod
     def hash(cls, password):
@@ -220,14 +188,13 @@ class User(db.Model):
 
 class Player(db.Model):
     __tablename__ = 'players'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     first_name = db.Column(db.String(40))
     last_name = db.Column(db.String(40), index=True)
     dob = db.Column(db.Date)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='players')
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
 
     @property
     def name(self):
@@ -278,11 +245,11 @@ class Player(db.Model):
         query = db.session.query(Game).filter_by(
             or_(white_id=self.id, black_id=self.id)
             .order_by(Game.date))
-        return query.all_or_404()
+        return query.all()
 
     @classmethod
     def get(cls, id=None, first_name=None, last_name=None, dob=None, team_id=None):
-        query = db.session.query(Player)
+        query = db.session.query(Player).filter(Player.active)
         if id is not None:
             query = query.filter(Player.id == id)
         else:
@@ -299,12 +266,11 @@ class Player(db.Model):
 
 class Team(db.Model):
     __tablename__ = 'teams'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(40), index=True)
     contacts = db.relationship('User', lazy='dynamic', back_populates='team')
     players = db.relationship('Player', lazy='dynamic', back_populates='team')
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
 
     @property
     def team_id(self):
@@ -320,12 +286,10 @@ class Team(db.Model):
         return {
             'uri': self.get_url(),
             'name': self.name,
-            'contacts': url_for(
-                'api.get_team_contacts', id=self.id, _external=True
-            ) if self.contacts else None,
-            'players': url_for(
-                'api.get_team_players', id=self.id, _external=True
-            ) if self.players else None
+            'contacts': url_for('api.get_team_contacts', id=self.id, _external=True
+                                ) if self.contacts else None,
+            'players': url_for('api.get_team_players', id=self.id, _external=True
+                               ) if self.players else None
         }
 
     def from_json(self, json_dict):
@@ -340,13 +304,13 @@ class Team(db.Model):
 
     @classmethod
     def get(cls, id=None, name=None):
-        query = db.session.query(Team)
+        query = db.session.query(Team).filter(Team.active)
         if id is not None:
             query = query.filter(Team.id == id)
         else:
             if name is not None:
                 query = query.filter(Team.name == name)
-        return query.all_or_404()
+        return query.all()
 
     @property
     def matches(self):
@@ -357,7 +321,6 @@ class Team(db.Model):
 
 class Match(db.Model):
     __tablename__ = 'matches'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     team_1_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team_2_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
@@ -365,7 +328,7 @@ class Match(db.Model):
     location = db.Column(db.String(40))
     result_1 = db.Column(db.Integer)  # HALF-points
     result2 = db.Column(db.Integer)  # HALF-points
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
 
     def get_url(self):
         return url_for('api.get_match', id=self.id, _external=True)
@@ -401,7 +364,7 @@ class Match(db.Model):
 
     @classmethod
     def get(cls, id=None, team_1_id=None, team_2_id=None, date=None):
-        query = db.session.query(Match)
+        query = db.session.query(Match).filter(Match.active)
         if id is not None:
             query = query.filter(Match.id == id)
         else:
@@ -412,7 +375,7 @@ class Match(db.Model):
                     or_(Match.team_1_id in ids, Match.team_2_id in ids))
             if date is not None:
                 query = query.filter(Match.date == date)
-        return query.all_or_404()
+        return query.all()
 
     def result(self):
         """ Computes the DOUBLED match result from the games as a pair of ints.
@@ -453,7 +416,6 @@ class Match(db.Model):
 
 class Game(db.Model):
     __tablename__ = 'games'
-    query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     white_id = db.Column(db.Integer, db.ForeignKey(
         'players.id'), nullable=False)
@@ -465,7 +427,7 @@ class Game(db.Model):
     result = db.Column(db.Enum('?', 'W', 'B', '='))
     defaulted = db.Column(db.Boolean, default=False)
     date = db.Column(db.Date)
-    deleted = db.Column(db.Boolean, default=False)
+    active = db.Column(db.Boolean, default=True)
 
     def get_url(self):
         return url_for('api.get_game', id=self.id, _external=True)
@@ -508,7 +470,7 @@ class Game(db.Model):
     @classmethod
     def get(cls, id=None, white_id=None,
             black_id=None, player_id=None, match_id=None):
-        query = db.session.query(Game)
+        query = db.session.query(Game).filter(Game.active)
         if id is not None:
             query = query.filter(Game.id == id)
         else:
@@ -521,7 +483,7 @@ class Game(db.Model):
                     Game.white_id, Game.black_id))
             if match_id is not None:
                 query = query.filter(match_id == Game.match_id)
-        return query.all_or_404()
+        return query.all()
 
     @property
     def players(self):

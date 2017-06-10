@@ -1,4 +1,4 @@
-#chessleague/fixtures/test_fixtures.py
+# chessleague/fixtures/test_fixtures.py
 
 import unittest
 
@@ -31,10 +31,10 @@ class TestLeague(unittest.TestCase, FixturesMixin):
 
     def test_matches(self):
         matches = Match.query.all()
-        self.assertEqual(len(matches),Match.query.count())
+        self.assertEqual(len(matches), Match.query.count())
         self.assertEqual(0, len(matches))
         teams = Team.query.all()
-        assert teams[0].name=='CapaCrusaders'
+        assert teams[0].name == 'CapaCrusaders'
         t0 = teams[0]
         p1 = Player('Alexander', 'Alekhine', team=t0)
         db.session.add(p1)
@@ -46,7 +46,6 @@ class TestLeague(unittest.TestCase, FixturesMixin):
         self.assertEqual(2, len(t0.players.all()))
         db.session.commit()
 
-
     def test_games(self):
         kasp = Player.query.filter_by(lastname='Kasparov').first()
         karp = Player.query.filter_by(lastname='Karpov').first()
@@ -54,9 +53,9 @@ class TestLeague(unittest.TestCase, FixturesMixin):
         db.session.add(g)
         db.session.commit()
         game = Game.query.first()
-        self.assertEqual(g,game)
-        self.assertEqual(game.white.firstname,'Garry')
-        self.assertEqual(game.black.firstname,'Anatoly')
+        self.assertEqual(g, game)
+        self.assertEqual(game.white.firstname, 'Garry')
+        self.assertEqual(game.black.firstname, 'Anatoly')
 
     def test_teams(self):
         teams = Team.query.all()
@@ -75,17 +74,8 @@ class TestLeague(unittest.TestCase, FixturesMixin):
         db.session.commit()
         t0_players = teams[0].players.all()
         t1_players = teams[1].players.all()
-        self.assertItemsEqual((karp,kasp), t0_players)
-        self.assertItemsEqual((lask,capa), t1_players)
-
-
-
+        self.assertItemsEqual((karp, kasp), t0_players)
+        self.assertItemsEqual((lask, capa), t1_players)
 
 
 #        m = Match(teams[0],teams[1], datetime(),
-
-
-
-
-
-

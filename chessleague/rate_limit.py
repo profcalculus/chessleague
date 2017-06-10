@@ -7,6 +7,7 @@ redis = None
 
 class FakeRedis(object):
     """Redis mock used for testing."""
+
     def __init__(self):
         self.v = {}
         self.last_key = None
@@ -25,6 +26,7 @@ class FakeRedis(object):
 
     def execute(self):
         return [self.v[self.last_key]]
+
 
 class RateLimit(object):
     expiration_window = 10

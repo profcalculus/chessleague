@@ -6,39 +6,39 @@ from migrate.changeset import schema
 pre_meta = MetaData()
 post_meta = MetaData()
 matches = Table('matches', post_meta,
-    Column('id', Integer, primary_key=True, nullable=False),
-    Column('team_1_id', Integer),
-    Column('team_2_id', Integer),
-    Column('date', Date),
-    Column('result_1', Integer),
-    Column('result2', Integer),
-    Column('active', Boolean, default=ColumnDefault(True)),
-)
+                Column('id', Integer, primary_key=True, nullable=False),
+                Column('team_1_id', Integer),
+                Column('team_2_id', Integer),
+                Column('date', Date),
+                Column('result_1', Integer),
+                Column('result2', Integer),
+                Column('active', Boolean, default=ColumnDefault(True)),
+                )
 
 users = Table('users', pre_meta,
-    Column('id', INTEGER, primary_key=True, nullable=False),
-    Column('nick_name', VARCHAR(length=64)),
-    Column('first_name', VARCHAR(length=30)),
-    Column('last_name', VARCHAR(length=30)),
-    Column('email', VARCHAR(length=120)),
-    Column('admin', BOOLEAN),
-    Column('active', BOOLEAN),
-    Column('team_id', INTEGER),
-)
+              Column('id', INTEGER, primary_key=True, nullable=False),
+              Column('nick_name', VARCHAR(length=64)),
+              Column('first_name', VARCHAR(length=30)),
+              Column('last_name', VARCHAR(length=30)),
+              Column('email', VARCHAR(length=120)),
+              Column('admin', BOOLEAN),
+              Column('active', BOOLEAN),
+              Column('team_id', INTEGER),
+              )
 
 users = Table('users', post_meta,
-    Column('id', Integer, primary_key=True, nullable=False),
-    Column('user_name', String(length=64)),
-    Column('first_name', String(length=30)),
-    Column('last_name', String(length=30)),
-    Column('email', String(length=120)),
-    Column('phone1', String(length=15)),
-    Column('phone2', String(length=15)),
-    Column('admin', Boolean, default=ColumnDefault(False)),
-    Column('password_hash', String(length=100)),
-    Column('active', Boolean, default=ColumnDefault(True)),
-    Column('team_id', Integer),
-)
+              Column('id', Integer, primary_key=True, nullable=False),
+              Column('user_name', String(length=64)),
+              Column('first_name', String(length=30)),
+              Column('last_name', String(length=30)),
+              Column('email', String(length=120)),
+              Column('phone1', String(length=15)),
+              Column('phone2', String(length=15)),
+              Column('admin', Boolean, default=ColumnDefault(False)),
+              Column('password_hash', String(length=100)),
+              Column('active', Boolean, default=ColumnDefault(True)),
+              Column('team_id', Integer),
+              )
 
 
 def upgrade(migrate_engine):

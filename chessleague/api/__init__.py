@@ -8,6 +8,7 @@ api = Blueprint('api', __name__)
 
 # from ..auth import auth
 
+
 @api.errorhandler(ValidationError)
 def validation_error(e):
     return bad_request(e.args[0])
@@ -35,6 +36,7 @@ def after_request(response):
     if hasattr(g, 'headers'):
         response.headers.extend(g.headers)
     return response
+
 
 # do this last to avoid circular dependencies
 from . import player_api, user_api, game_api, team_api, match_api
