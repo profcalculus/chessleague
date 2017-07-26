@@ -9,5 +9,5 @@ if __name__ == '__main__':
         environment = sys.argv[1]
     else:
         environment = os.getenv('CHESSLEAGUE_CONFIG', 'development')
-    chessleague.app.config.update(chessleague.config.get_config(environment))
-chessleague.app.run(debug=True)
+    app = chessleague.create_app(environment)
+    app.run()

@@ -8,7 +8,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from flask import url_for, current_app
 from sqlalchemy import or_
-from ipdb import set_trace as DBG
 
 from .errors import ValidationError
 

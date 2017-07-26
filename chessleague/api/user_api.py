@@ -1,27 +1,26 @@
 from flask import request
 
-from chessleague import db
-from chessleague.models import User
+from chessleague.models import User, db
+from chessleague.errors import ValidationError
+from . import api, auth, API_BASE_URL
 
-from chessleague.api import api
 from chessleague.decorators import etag, paginate, json
 
-
-@api.route('/users/', methods=['GET'])
+@api.route(API_BASE_URL + '/users/', methods=['GET'])
 @etag
 @paginate()
 def get_users():
     return User.query
 
 
-@api.route('/users/<int:id>', methods=['GET'])
+@api.route(API_BASE_URL + '/users/<int:id>', methods=['GET'])
 @etag
 @json
 def get_user(id):
     return User.query.get_or_404(id)
 
 
-@api.route('/users/<int:id>/team/', methods=['GET'])
+@api.route(API_BASE_URL + '/users/<int:id>/team/', methods=['GET'])
 @etag
 @paginate()
 def get_user_team(id):
@@ -29,17 +28,21 @@ def get_user_team(id):
     return user.team
 
 
-@api.route('/users/', methods=['POST'])
+@api.route(API_BASE_URL + '/users/', methods=['POST'])
 @json
+@auth.login_required
 def new_user():
     user = User().from_json(request.json)
+    if user.user_name is None or user.password_hash is None:
+        raise ValidationError('user_name and password are required.')
     db.session.add(user)
     db.session.commit()
     return {}, 201, {'Location': user.get_url()}
 
 
-@api.route('/users/<int:id>', methods=['PUT'])
+@api.route(API_BASE_URL + '/users/<int:id>', methods=['PUT'])
 @json
+# @auth.login_required
 def edit_user(id):
     user = User.query.get_or_404(id)
     user.from_json(request.json)
@@ -48,8 +51,9 @@ def edit_user(id):
     return {}
 
 
-@api.route('/users/<int:id>', methods=['DELETE'])
+@api.route(API_BASE_URL + '/users/<int:id>', methods=['DELETE'])
 @json
+@auth.login_required
 def delete_user(id):
     user = User.query.get_or_404(id)
     user.deleted = True

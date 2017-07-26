@@ -2,13 +2,12 @@ from datetime import datetime
 
 from flask import request, current_app
 
-from chessleague import db
-from chessleague.models import Match
+from chessleague.models import Match, db
 from chessleague.decorators import etag, paginate, json
-from . import api
+from . import api, API_BASE_URL
 
 
-@api.route('/matches/', methods=['GET'])
+@api.route(API_BASE_URL + '/matches/', methods=['GET'])
 @etag
 # @paginate()
 @json
@@ -16,21 +15,21 @@ def get_matches():
     return Match.query
 
 
-@api.route('/matches/<int:id>', methods=['GET'])
+@api.route(API_BASE_URL + '/matches/<int:id>', methods=['GET'])
 @etag
 @json
 def get_match(id):
     return Match.query.get_or_404(id)
 
 
-@api.route('/matches/<int:id>/teams/', methods=['GET'])
+@api.route(API_BASE_URL + '/matches/<int:id>/teams/', methods=['GET'])
 @etag
 def get_match_teams(id):
     match = Match.query.get_or_404(id)
     return match.teams
 
 
-@api.route('/matches/<int:id>/games/', methods=['GET'])
+@api.route(API_BASE_URL + '/matches/<int:id>/games/', methods=['GET'])
 @etag
 @json
 def get_match_games(id):
@@ -38,7 +37,7 @@ def get_match_games(id):
     return match.games
 
 
-@api.route('/matches/', methods=['POST'])
+@api.route(API_BASE_URL + '/matches/', methods=['POST'])
 @json
 def new_match():
     match = Match().from_json(request.json)
@@ -47,7 +46,7 @@ def new_match():
     return {}, 201, {'Location': match.get_url()}
 
 
-@api.route('/matches/<int:id>', methods=['PUT'])
+@api.route(API_BASE_URL + '/matches/<int:id>', methods=['PUT'])
 @json
 def edit_match(id):
     match = Match.query.get_or_404(id)
@@ -55,7 +54,7 @@ def edit_match(id):
     db.session.add(match)
     db.session.commit()
     return {}, 204
-@api.route('/matches/<int:id>', methods=['DELETE'])
+@api.route(API_BASE_URL + '/matches/<int:id>', methods=['DELETE'])
 @json
 def delete_match(id):
     match = Match.query.get_or_404(id)

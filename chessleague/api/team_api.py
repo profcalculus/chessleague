@@ -1,13 +1,11 @@
 from flask import request
 
-from .. import db
-from ..models import Team, Player, User
+from ..models import Team, Player, User, db
 from ..decorators import etag, paginate, json
-from . import api
-from .. import DBG
+from . import api, API_BASE_URL
 
 
-@api.route('/teams/', methods=['GET'])
+@api.route(API_BASE_URL + '/teams/', methods=['GET'])
 @etag
 @paginate()
 def get_teams():
@@ -15,7 +13,7 @@ def get_teams():
     return q
 
 
-@api.route('/teams/<int:id>', methods=['GET'])
+@api.route(API_BASE_URL + '/teams/<int:id>', methods=['GET'])
 @etag
 @json
 def get_team(id):
@@ -23,7 +21,7 @@ def get_team(id):
     return q
 
 
-@api.route('/teams/<int:id>/players/', methods=['GET'])
+@api.route(API_BASE_URL + '/teams/<int:id>/players/', methods=['GET'])
 @etag
 @json
 def get_team_players(id):
@@ -31,7 +29,7 @@ def get_team_players(id):
     return team.players
 
 
-@api.route('/teams/<int:id>/contacts/', methods=['GET'])
+@api.route(API_BASE_URL + '/teams/<int:id>/contacts/', methods=['GET'])
 @etag
 @json
 def get_team_contacts(id):
@@ -39,7 +37,7 @@ def get_team_contacts(id):
     return team.contacts
 
 
-@api.route('/teams/<int:id>/matches/', methods=['GET'])
+@api.route(API_BASE_URL + '/teams/<int:id>/matches/', methods=['GET'])
 @etag
 @json
 # @paginate()
@@ -48,7 +46,7 @@ def get_team_matches(id):
     return team.matches
 
 
-@api.route('/teams/', methods=['POST'])
+@api.route(API_BASE_URL + '/teams/', methods=['POST'])
 @json
 def new_team():
     team = Team().from_json(request.json)
@@ -57,7 +55,7 @@ def new_team():
     return {}, 201, {'Location': team.get_url()}
 
 
-@api.route('/teams/<int:id>', methods=['PUT'])
+@api.route(API_BASE_URL + '/teams/<int:id>', methods=['PUT'])
 @json
 def edit_team(id):
     team = Team.query.get_or_404(id)
@@ -67,7 +65,7 @@ def edit_team(id):
     return {}
 
 
-@api.route('/teams/<int:id>', methods=['DELETE'])
+@api.route(API_BASE_URL + '/teams/<int:id>', methods=['DELETE'])
 @json
 def delete_team(id):
     team = Team.query.get_or_404(id)

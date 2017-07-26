@@ -6,14 +6,15 @@ import json
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from flask import url_for, current_app
+from flask import url_for
 from sqlalchemy import or_
-from flask_sqlalchemy import BaseQuery
-from ipdb import set_trace as DBG
+from flask_sqlalchemy import SQLAlchemy, BaseQuery
 
 from .errors import ValidationError
 
-from . import db
+from chessleague import app
+
+db = SQLAlchemy(app)
 
 
 def parse_date(yyyy_mm_dd):
@@ -21,8 +22,9 @@ def parse_date(yyyy_mm_dd):
         yyyy, mm, dd = [int(comp) for comp in re.split(r'[/\-. ]', yyyy_mm_dd)]
         return date(yyyy, mm, dd)
     except Exception, exc:
-        current_app.logger.error("Cannot parse date '%s'" % yyyy_mm_dd)
+        app.logger.error("Cannot parse date '%s'" % yyyy_mm_dd)
         raise ValidationError(exc)
+
 
 class QueryWithSoftDelete(BaseQuery):
     def __new__(cls, *args, **kwargs):
@@ -40,7 +42,6 @@ class QueryWithSoftDelete(BaseQuery):
         return self.__class__(db.class_mapper(self._mapper_zero().class_),
                               session=db.session(), _with_deleted=True)
 
-
     def _get(self, *args, **kwargs):
         # this calls the original query.get function from the base class
         return super(QueryWithSoftDelete, self).get(*args, **kwargs)
@@ -49,50 +50,24 @@ class QueryWithSoftDelete(BaseQuery):
         # the query.get method does not like it if there is a filter clause
         # pre-loaded, so we need to implement it using a workaround
         obj = self.with_deleted()._get(*args, **kwargs)
-        return obj if obj is not None and not obj.deleted else None
-
-
-
-class Post(db.Model):
-    __tablename__ = 'posts'
-    query_class = QueryWithSoftDelete
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    user = db.relationship('User', back_populates='posts')
-    date = db.Column(db.Date)
-    post = db.Column(db.Text)
-    deleted = db.Column(db.Boolean, default=False)
-
-    def __repr__(self):
-        return '<Post by {} on {}>'.format(self.user, self.date)
-
-    @classmethod
-    def get(cls, id=None, user_id=None, pdate=None):
-        query = db.session.query(Post)
-        if id is not None:
-            query = query.filter(Post.id == id)
-        else:
-            if user_id is not None:
-                query = query.filter(Post.user_id == user_id)
-            if date is not None:
-                query = query.filter(Post.date == pdate)
-        return query.all_or_404()
+        return obj if obj is not None and not getattr(
+            obj, 'deleted', False) else None
 
 
 class User(db.Model):
     __tablename__ = 'users'
     query_class = QueryWithSoftDelete
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_name = db.Column(db.String(64), index=True)
+    user_name = db.Column(db.String(64), nullable=False, index=True)
     #  , unique=True)
-    first_name = db.Column(db.String(30))
-    last_name = db.Column(db.String(30))
-    email = db.Column(db.String(120))
+    first_name = db.Column(db.String(30), default='')
+    last_name = db.Column(db.String(30), default='')
+    email = db.Column(db.String(254))
     #  , unique=True)
-    phone1 = db.Column(db.String(15))
-    phone2 = db.Column(db.String(15))
+    phone_1 = db.Column(db.String(15))
+    phone_2 = db.Column(db.String(15))
     admin = db.Column(db.Boolean, default=False)
-    password_hash = db.Column(db.String(100))
+    password_hash = db.Column(db.String(100), nullable=False)
     deleted = db.Column(db.Boolean, default=False)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='contacts')
@@ -106,21 +81,9 @@ class User(db.Model):
     def password(self, password):
         self.password_hash = generate_password_hash(password)
 
-    def verify_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
     def generate_auth_token(self, expires_in=3600):
-        s = Serializer(current_app.config['SECRET_KEY'], expires_in=expires_in)
+        s = Serializer(app.config['SECRET_KEY'], expires_in=expires_in)
         return s.dumps({'id': self.id}).decode('utf-8')
-
-    @staticmethod
-    def verify_auth_token(token):
-        s = Serializer(current_app.config['SECRET_KEY'])
-        try:
-            data = s.loads(token)
-        except:
-            return None
-        return User.query.get(data['id'])
 
     @property
     def name(self):
@@ -136,22 +99,25 @@ class User(db.Model):
 
     def to_json(self):
         return {
-            'uri': self.get_url(),
+            'id': self.id,
             'user_name': self.user_name,
-            'name': self.full_name,
+            'name': self.name,
             'email': self.email,
-            'phone1': self.phone1,
-            'phone2': self.phone2,
-            'team': (self.team.name, self.team.get_url()) if self.team else None,
+            'phone_1': self.phone_1,
+            'phone_2': self.phone_2,
+            'team': (self.team.name, self.team.id) if self.team else None,
             'admin': self.admin,
         }
 
     def from_json(self, json_dict):
         for key, value in json_dict.items():
             try:
+                if key == 'password':
+                    key = 'password_hash'
+                    value = self.hash(value)
                 setattr(self, key, value)
             except AttributeError:
-                current_app.logger.error(
+                app.logger.error(
                     '{}: could not set attribute {} to {}'
                     .format(self.__class__.__name__, key, value))
         return self
@@ -162,7 +128,7 @@ class User(db.Model):
     @classmethod
     def get(cls, id=None, user_name=None,
             first_name=None, last_name=None, email=None,
-            phone1=None, phone2=None, admin=None, team_id=None):
+            phone_1=None, phone_2=None, admin=None, team_id=None):
         query = db.session.query(User)
         if id is not None:
             query = query.filter(User.id == id)
@@ -175,10 +141,10 @@ class User(db.Model):
                 query = query.filter(User.last_name == last_name)
             if email is not None:
                 query = query.filter(User.email == email)
-            if phone1 is not None:
-                query = query.filter(User.phone1 == phone1)
-            if phone2 is not None:
-                query = query.filter(User.phone2 == phone2)
+            if phone_1 is not None:
+                query = query.filter(User.phone_1 == phone_1)
+            if phone_2 is not None:
+                query = query.filter(User.phone_2 == phone_2)
             if admin is not None:
                 query = query.filter(User.admin == admin)
             if team_id is not None:
@@ -192,28 +158,26 @@ class User(db.Model):
             salt.encode() + password.encode()).hexdigest() + ':' + salt
 
     @classmethod
-    def check_password(cls, hashed_password, user_password):
-        password, salt = hashed_password.split(':')
-        return password == hashlib.sha256(
-            salt.encode() + user_password.encode()).hexdigest()
-
-    @classmethod
     def authenticate(cls, user_name, password):
         """ Authenticates an admin user based on the password.
-        If the user is an admin and the password matches the user record
+        If the password matches the user record
         (after hashing), return a session key (valid until midnight).
         Else return None.
         """
         user = db.session.query(User).filter(user_name == User.user_name).one()
-        if user is None or not user.admin:
+        if user is None:
             return None
-        if hash(password) == user.password_hash:
+        if check_password_hash(user.password_hash, password):
             return SessionKey.add(user)
 
     @classmethod
     def login(cls, user_name, password):
         today = datetime.now().date()
         # TODO
+
+    @classmethod
+    def verify_auth_token(user_name, token):
+        return SessionKey.check(user_name, token)
 
         #  db.session.execute
 
@@ -225,6 +189,9 @@ class Player(db.Model):
     first_name = db.Column(db.String(40))
     last_name = db.Column(db.String(40), index=True)
     dob = db.Column(db.Date)
+    email = db.Column(db.String(254))
+    phone_1 = db.Column(db.String(15))
+    phone_2 = db.Column(db.String(15))
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'))
     team = db.relationship('Team', back_populates='players')
     deleted = db.Column(db.Boolean, default=False)
@@ -241,36 +208,33 @@ class Player(db.Model):
 
     def to_json(self):
         return {
-            'uri': self.get_url(),
-            'name': self.name,
+            'id': self.id,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
             'dob': self.dob.isoformat() if self.dob else None,
+            'email': self.email,
+            'phone_1': self.phone_1,
+            'phone_2': self.phone_2,
             'team': {
                 'name': self.team.name if self.team else None,
-                'uri': (url_for('api.get_team', id=self.team_id, _external=True)
-                        if self.team else None),
+                'id': self.team.id if self.team else None,
             }
         }
 
     def from_json(self, json_dict):
         for key, value in json_dict.items():
             try:
-                if key == 'dob':
+                if key == 'team':
+                    key='team_id'
+                    value = json_dict['team']['id']
+                elif key == 'dob':
                     value = parse_date(value)
                 setattr(self, key, value)
             except AttributeError:
-                if key == 'team':
-                    try:
-                        team = Team.query.filter(Team.name == value).one()
-                        setattr(self, 'team', team)
-                    except:
-                        current_app.logger.error(
-                            "Team '%s' not found" % value)
-                        raise ValidationError
-                else:
-                    current_app.logger.error(
-                        '%s: could not set attribute %s to %s'
-                        % (self.__class__.__name__, key, value))
-                    raise ValidationError
+                app.logger.error(
+                    '%s: could not set attribute %s to %s'
+                    % (self.__class__.__name__, key, value))
+                raise ValidationError
         return self
 
     @property
@@ -318,14 +282,10 @@ class Team(db.Model):
 
     def to_json(self):
         return {
-            'uri': self.get_url(),
+            'id': self.id,
             'name': self.name,
-            'contacts': url_for(
-                'api.get_team_contacts', id=self.id, _external=True
-            ) if self.contacts else None,
-            'players': url_for(
-                'api.get_team_players', id=self.id, _external=True
-            ) if self.players else None
+            'contacts': [{'name': contact.name, 'id': contact.id} for contact in self.contacts],
+            'players': [{'name': player.name, 'id': player.id} for player in self.players],
         }
 
     def from_json(self, json_dict):
@@ -333,7 +293,7 @@ class Team(db.Model):
             try:
                 setattr(self, key, value)
             except AttributeError:
-                current_app.logger.error(
+                app.logger.error(
                     '{}: could not set attribute {} to {}'
                     .format(self.__class__.__name__, key, value))
         return self
@@ -364,7 +324,7 @@ class Match(db.Model):
     date = db.Column(db.Date)
     location = db.Column(db.String(40))
     result_1 = db.Column(db.Integer)  # HALF-points
-    result2 = db.Column(db.Integer)  # HALF-points
+    result_2 = db.Column(db.Integer)  # HALF-points
     deleted = db.Column(db.Boolean, default=False)
 
     def get_url(self):
@@ -372,12 +332,23 @@ class Match(db.Model):
 
     def to_json(self):
         return {
-            'uri': self.get_url(),
-            'team_1': [self.team_1.name, self.team_1.get_url()],
-            'team_2': [self.team_2.name, self.team_2.get_url()],
+            'id': self.id,
+            'team_1':{'name': self.team_1.name, 'id': self.team_1.id },
+            'team_2':{'name': self.team_2.name, 'id': self.team_2.id },
             'date': self.date.isoformat() if self.date else None,
-            'games': url_for('api.get_match_games', id=self.id, _external=True),
-            'result': self.result_str(),
+            'games': [{
+                'id': game.id,
+                'white': {
+                    'id': game.white.id,
+                    'last_name': game.white.last_name,
+                },
+                'black': {
+                    'id': game.black.id,
+                    'last_name': game.black.last_name,
+                },
+                'result': game.result
+            } for game in self.games],
+            'result': self.result_str()
         }
 
     def from_json(self, json_dict):
@@ -387,7 +358,7 @@ class Match(db.Model):
             try:
                 setattr(self, key, value)
             except AttributeError:
-                current_app.logger.error(
+                app.logger.error(
                     '{}: could not set attribute {} to {}'
                     .format(self.__class__.__name__, key, value))
         return self
@@ -405,7 +376,7 @@ class Match(db.Model):
         if id is not None:
             query = query.filter(Match.id == id)
         else:
-            # Order of team parameters does not matter
+            # Order of teams does not matter
             if team_1_id or team_2_id:
                 ids = (team_1_id, team_2_id)
                 query = query.filter(
@@ -472,11 +443,28 @@ class Game(db.Model):
 
     def to_json(self):
         return {
-            'uri': self.get_url(),
-            'white': [self.white.name, self.white.get_url()],
-            'black': [self.black.name, self.black.get_url()],
-            'match': self.match.get_url(),
+            'id': self.id,
+            'white': {
+                'id': self.white.id,
+                'last_name': self.white.last_name,
+            },
+            'black': {
+                'id': self.black.id,
+                'last_name': self.black.last_name,
+            },
             'result': self.result_str(),
+            'match': {
+                'id': self.match.id,
+                'team_1': {
+                    'id': self.match.team_1.id,
+                    'name': self.match.team_1.name
+                },
+                'team_2': {
+                    'id': self.match.team_2.id,
+                    'name': self.match.team_2.name
+                },
+                'result': self.match.result
+            }
         }
 
     def from_json(self, json_dict):
@@ -486,8 +474,8 @@ class Game(db.Model):
                     value = parse_date(value)
                 setattr(self, key, value)
             except AttributeError:
-                current_app.logger.error('{}: could not set attribute {} to {}'
-                                         .format(self.__class__.__name__, key, value))
+                app.logger.error('{}: could not set attribute {} to {}'
+                                 .format(self.__class__.__name__, key, value))
         return self
 
     def result_str(self):
@@ -540,36 +528,66 @@ class SessionKey(db.Model):
         self.user_id = user.id
         today = datetime.now().date()
         self.session_key = hash(user.username, today)
-        self.expiry = today + timedelta(days=1)
+        self.expiry = today + timedelta(hours=1)
 
-    def check(self, user, session_key):
+    @classmethod
+    def check(cls, user, session_key):
         """ Verify that user holds a current session key.
         Purge expired session keys, then return True iff
         user has a stored session key that matches the key in the request.
         """
         #  Purge old session keys
-        db.session.delete(SessionKey).filter(
-            SessionKey.expiry <= datetime.now().date())
+        db.session.query(SessionKey).filter(
+            SessionKey.expiry >= datetime.now().date()).delete()
         db.session.commit()
         if session_key is None:
             return False
-        stored_session_key = db.session.query(SessionKey).filter(
-            SessionKey.user_id == user.id).one().session_key
-        return session_key == stored_session_key
+        try:
+            stored_session_key = db.session.query(SessionKey).filter_by(
+                user_id=user.id).one().session_key
+            return session_key == stored_session_key
+        except:
+            return False
 
     @classmethod
     def add(cls, user):
         """ Make a new session key for an admin user.
         Return the session_key value (valid for the current day only).
         """
-        assert user.admin
+        # assert user.admin
         new_key = SessionKey(user)
         db.session.add(new_key)
         db.session.commit()
         return new_key.session_key
 
 
+class Post(db.Model):  # Not currently used
+    __tablename__ = 'posts'
+    query_class = QueryWithSoftDelete
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    user = db.relationship('User', back_populates='posts')
+    date = db.Column(db.Date)
+    post = db.Column(db.Text)
+    deleted = db.Column(db.Boolean, default=False)
+
+    def __repr__(self):
+        return '<Post by {} on {}>'.format(self.user, self.date)
+
+    @classmethod
+    def get(cls, id=None, user_id=None, pdate=None):
+        query = db.session.query(Post)
+        if id is not None:
+            query = query.filter(Post.id == id)
+        else:
+            if user_id is not None:
+                query = query.filter(Post.user_id == user_id)
+            if date is not None:
+                query = query.filter(Post.date == pdate)
+        return query.all_or_404()
+
 # Add relationships after all model classes are defined
+
 
 Game.white = db.relationship('Player', foreign_keys="[Game.white_id]")
 Game.black = db.relationship('Player', foreign_keys="[Game.black_id]")

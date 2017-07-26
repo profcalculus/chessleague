@@ -1,39 +1,12 @@
-import unittest
-from werkzeug.exceptions import BadRequest
-from .test_client import TestClient
-from chessleague import create_app
-# from api.errors import ValidationError
 
-from pdb import set_trace as DBG
+from . import ApiTest
 
 
-class TestAPI(unittest.TestCase):
-    default_username = 'fred'
-    default_password = 'bloggs'
-    db = None
-
+class TestPlayers(ApiTest):
     def setUp(self):
-        self.app = create_app('testing')
-        self.ctx = self.app.app_context()
-        self.ctx.push()
-        from chessleague import db
-        self.db = db
-        from chessleague.models import User, Player, Game, Match, Team
-        self.db.drop_all()
-        # self.app.logger.debug('drop_all())')
-        self.db.create_all()
-        # self.app.logger.debug('create_all())')
-        u = User(user_name=self.default_username)
-        u.password = self.default_password
-        self.db.session.add(u)
-        self.db.session.commit()
-        self.client = TestClient(self.app, u.generate_auth_token(), '')
+        super(TestPlayers, self).setUp()
+        import chessleague.api.player_api
 
-    def tearDown(self):
-        self.db.session.remove()
-        # self.db.drop_all()
-        # self.app.logger.debug('drop_all())')
-        self.ctx.pop()
 
     # def test_password_auth(self):
     #     self.app.config['USE_TOKEN_AUTH'] = False
@@ -104,20 +77,11 @@ class TestAPI(unittest.TestCase):
         # Make sure he's gone
         rv, json = self.client.get(boris_url)
         self.assertEqual(404, rv.status_code) # Not found
+        # get players
+        rv, json = self.client.get('/players/')
+        self.assertEqual(200, rv.status_code)
+        self.assertEqual(1, len(json['items']))
 
-    def test_teams(self):
-        # create new teams
-        rv, json = self.client.post('/teams/', data={'name': 'Zugzwangers'})
-        self.assertEqual(201, rv.status_code)
-        zz_url = rv.headers['Location']
-        rv, json = self.client.post('/teams/', data={'name': 'Perpetuals'})
-        self.assertEqual(201, rv.status_code)
-        pp_url = rv.headers['Location']
-
-        # Create some players and add them to the teams
-        for p in range(1,11):
-            self.client.post('/players/', data={
-            'first_name': 'first%d' % p,})
 
         # rv,json = self.client.put(boris_url, data={'team':'Zugzwangers'})
         # self.assertEqual(204, rv.status_code)
